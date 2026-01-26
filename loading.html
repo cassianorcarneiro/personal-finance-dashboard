@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Loading...</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #343d46;
+            color: #bfd6f6;
+            font-family: 'Arial', sans-serif;
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            margin-bottom: 20px;
+            font-weight: bold;
+            text-align: center;
+        }
+
+        .spinner {
+            border: 8px solid #f3f3f3;
+            border-top: 8px solid #3385c6;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+
+        @keyframes spin {
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+    <script>
+        setTimeout(() => {
+            window.location.href = "http://localhost:8050";
+        }, 3000); // redirects in 3 seconds
+    </script>
+</head>
+<body>
+    <div class="spinner"></div>
+    <h1>🚀 Server starting, please wait....</h1>
+</body>
+</html>
