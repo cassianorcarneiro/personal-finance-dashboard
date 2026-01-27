@@ -20,6 +20,7 @@ import webbrowser, time, threading
 import matplotlib
 import matplotlib.colors as mcolors
 import plotly.graph_objects as go
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 # Custom modules import
 
@@ -34,8 +35,20 @@ CSV_PATH = os.path.join(os.path.dirname(__file__), config.csv_db)
 CATEGORIES_PATH = os.path.join(os.path.dirname(__file__), config.categories_db)
 
 # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-# Custom functions
+# General custom functions
 # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+def get_datetime(timezone_str):
+    try:
+        # Set the timezone based on the string
+        timezone = ZoneInfo(timezone_str)
+        
+        # Get the current timezone-aware datetime
+        current_datetime = datetime.now(timezone)
+        return current_datetime
+    
+    except ZoneInfoNotFoundError:
+        return f"Error: The timezone '{timezone_str}' does not exist."
 
 def load_categories():
     df_categories = pd.read_csv(CATEGORIES_PATH, sep=";", encoding="utf-8-sig")
@@ -230,10 +243,17 @@ app.layout = html.Div([
                                 ], width=3, className="d-flex flex-column align-items-center justify-content-center")
 
                             ])
-                        ], style={"backgroundColor": config.blue_2,
-                                  "borderColor": config.blue_2,
-                                  "color": config.blue_1,
-                                  "fontSize": config.fontsize_3})
+                        ], style={
+                            "backgroundColor": config.blue_2,
+                            "borderColor": config.blue_2,
+                            "color": config.blue_1,
+                            "fontSize": config.fontsize_3
+                            }), style={
+                                "backgroundColor": config.blue_2,
+                                "borderColor": config.blue_2,
+                                "color": config.blue_1,
+                                "fontSize": config.fontsize_1
+                                }
                     ),
                     id="filters-collapse",
                     is_open=False,
