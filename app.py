@@ -579,7 +579,7 @@ def update_all(save_click, delete_click_hash, delete_click, update_trigger, star
             fig1 = px.bar(df_g1, x="MonthYear", y="Cumulative_Amount", title="Cumulative amount",
                         color_discrete_sequence=[config.blue_1])
             fig1.update_layout(plot_bgcolor=config.blue_2, paper_bgcolor=config.blue_2,
-                            title_font_color=config.blue_1, font_color=config.blue_1, fontsize=config.chart_fontsize_1,
+                            title_font_color=config.blue_1, font_color=config.blue_1, font_size=config.chart_fontsize_1,
                             xaxis_title="Month/Year", yaxis_title="Amount",
                             xaxis=dict(
                                 showgrid=False,
@@ -610,7 +610,7 @@ def update_all(save_click, delete_click_hash, delete_click, update_trigger, star
             fig2 = px.pie(df_g2.groupby("Payment Method")["Amount"].sum().reset_index(), names="Payment Method", values="Amount",
                         title="Spending by Payment Method", color_discrete_sequence=predefined_color_palette)
             fig2.update_layout(plot_bgcolor=config.blue_2, paper_bgcolor=config.blue_2,
-                            title_font_color=config.blue_1, font_color=config.blue_1, fontsize=config.chart_fontsize_1)
+                            title_font_color=config.blue_1, font_color=config.blue_1, font_size=config.chart_fontsize_1)
         else:
             fig2 = empty_figure()
 
@@ -629,7 +629,7 @@ def update_all(save_click, delete_click_hash, delete_click, update_trigger, star
             fig3 = px.pie(df_g3.groupby("Category")["Amount"].sum().reset_index(), names="Category", values="Amount",
                         title="Spending by Category", color_discrete_sequence=predefined_color_palette)
             fig3.update_layout(plot_bgcolor=config.blue_2, paper_bgcolor=config.blue_2,
-                            title_font_color=config.blue_1, font_color=config.blue_1, fontsize=config.chart_fontsize_1)
+                            title_font_color=config.blue_1, font_color=config.blue_1, font_size=config.chart_fontsize_1)
         else:
             fig3 = empty_figure()
 
@@ -650,7 +650,7 @@ def update_all(save_click, delete_click_hash, delete_click, update_trigger, star
             fig4 = px.bar(df_g4, x="MonthYear", y="Amount", title="Amount paid per month",
                         color_discrete_sequence=[config.red_1])
             fig4.update_layout(plot_bgcolor=config.blue_2, paper_bgcolor=config.blue_2,
-                            title_font_color=config.blue_1, font_color=config.blue_1, fontsize=config.chart_fontsize_1,
+                            title_font_color=config.blue_1, font_color=config.blue_1, font_size=config.chart_fontsize_1,
                             xaxis_title="Month/Year", yaxis_title="Amount",
                             xaxis=dict(
                                 showgrid=False,
@@ -684,7 +684,7 @@ def update_all(save_click, delete_click_hash, delete_click, update_trigger, star
             fig5 = px.bar(df_g5, x="MonthYear", y="Amount", title="Amount spent per month",
                         color_discrete_sequence=[config.red_1])
             fig5.update_layout(plot_bgcolor=config.blue_2, paper_bgcolor=config.blue_2,
-                            title_font_color=config.blue_1, font_color=config.blue_1, fontsize=config.chart_fontsize_1,
+                            title_font_color=config.blue_1, font_color=config.blue_1, font_size=config.chart_fontsize_1,
                             xaxis_title="Month/Year", yaxis_title="Amount",
                             xaxis=dict(
                                 showgrid=False,
@@ -721,7 +721,7 @@ def update_all(save_click, delete_click_hash, delete_click, update_trigger, star
 
             fig6 = px.bar(df_g6, x="MonthYear", y="Amount", title="Finishing payments", color_discrete_sequence=[config.green_1])
             fig6.update_layout(plot_bgcolor=config.blue_2, paper_bgcolor=config.blue_2,
-                            title_font_color=config.blue_1, font_color=config.blue_1, fontsize=config.chart_fontsize_1,
+                            title_font_color=config.blue_1, font_color=config.blue_1, font_size=config.chart_fontsize_1,
                             xaxis_title="Month/Year", yaxis_title="Amount",
                             xaxis=dict(
                                 showgrid=False,
@@ -758,7 +758,7 @@ def update_all(save_click, delete_click_hash, delete_click, update_trigger, star
 
             fig7 = px.bar(df_g7, x="MonthYear", y="Amount", title="Starting payments", color_discrete_sequence=[config.yellow_1])
             fig7.update_layout(plot_bgcolor=config.blue_2, paper_bgcolor=config.blue_2,
-                            title_font_color=config.blue_1, font_color=config.blue_1, fontsize=config.chart_fontsize_1,
+                            title_font_color=config.blue_1, font_color=config.blue_1, font_size=config.chart_fontsize_1,
                             xaxis_title="Month/Year", yaxis_title="Amount",
                             xaxis=dict(
                                 showgrid=False,
