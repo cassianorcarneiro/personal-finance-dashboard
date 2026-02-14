@@ -52,6 +52,12 @@ Expected structure (example):
 
 The CSV files must exist (even if empty), because the app reads them at startup.
 
+2) Install requirements
+
+```bash
+pip install -r requirements.txt
+```
+
 3) Starting the containers
 
 From the project root:
