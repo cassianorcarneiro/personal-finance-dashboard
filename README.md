@@ -268,14 +268,8 @@ After the initial setup, you can disconnect from the internet and the dashboard 
 - [ ] Mobile-friendly layout
 
 ---
-
-## 📜 License
-
-MIT — see `LICENSE`.
-
-## 👤 Author
-
-**Cassiano Ribeiro Carneiro** — [@cassianorcarneiro](https://github.com/cassianorcarneiro)
+### 📝 AI Assistance Disclosure
+The codebase architecture, organizational structure, and stylistic formatting of this repository were refactored and optimized leveraging [Claude](https://www.anthropic.com/claude) by Anthropic. All core business logic and intellectual property remain the work of the repository authors and are governed by the project's license.
 
 ---
 
