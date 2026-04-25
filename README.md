@@ -1,6 +1,8 @@
 # 💰 Personal Finance Dashboard
 
-A Python-based personal finance dashboard that turns CSV-stored transactions into interactive charts and indicators — running locally via Docker, with **no data leaving your machine**.
+> Clean, private personal finance dashboard — your data never leaves your machine.
+
+A Python-based personal finance dashboard that turns CSV-stored transactions into interactive charts and indicators. Runs locally via Docker, with **no external APIs and no telemetry**.
 
 > 🤖 Looking for the AI-powered version that adds automatic insights from a local LLM? See **[ai-powered-financial-dashboard](https://github.com/cassianorcarneiro/ai-powered-financial-dashboard)**.
 
@@ -12,7 +14,7 @@ A Python-based personal finance dashboard that turns CSV-stored transactions int
 
 ---
 
-## ✨ Features
+## 📦 Features
 
 - 📊 **Interactive charts** — spending by category, payment method, monthly trends, installments starting/finishing
 - 💳 **Payment method management** — handle credit cards (with statement close / payment days) and debit accounts
@@ -37,7 +39,7 @@ A Python-based personal finance dashboard that turns CSV-stored transactions int
        └───────────┘
 ```
 
-Single container, your data lives in `./data/` and is mounted into the container.
+Single container; your data lives in `./data/` and is mounted into the container.
 
 ---
 
@@ -57,8 +59,8 @@ Single container, your data lives in `./data/` and is mounted into the container
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/cassianorcarneiro/<repo-name>.git
-cd <repo-name>
+git clone https://github.com/cassianorcarneiro/personal-finance-dashboard.git
+cd personal-finance-dashboard
 ```
 
 ### 2. Prepare your data folder
@@ -186,7 +188,7 @@ docker compose up -d
 
 ---
 
-## 🧯 Troubleshooting
+## 🔧 Troubleshooting
 
 **🔴 Container keeps restarting**
 
@@ -268,7 +270,19 @@ After the initial setup, you can disconnect from the internet and the dashboard 
 - [ ] Mobile-friendly layout
 
 ---
-### 📝 AI Assistance Disclosure
+
+## 📜 License
+
+MIT — see `LICENSE` file.
+
+## 👤 Author
+
+**Cassiano Ribeiro Carneiro** — [@cassianorcarneiro](https://github.com/cassianorcarneiro)
+
+---
+
+### 🤖 AI Assistance Disclosure
+
 The codebase architecture, organizational structure, and stylistic formatting of this repository were refactored and optimized leveraging [Claude](https://www.anthropic.com/claude) by Anthropic. All core business logic and intellectual property remain the work of the repository authors and are governed by the project's license.
 
 ---
