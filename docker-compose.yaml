@@ -1,0 +1,12 @@
+services:
+  dashboard:
+    build: .
+    container_name: financial-dashboard
+    ports:
+      - "${DASHBOARD_PORT:-8050}:8050"
+    environment:
+      - TZ=${TZ:-America/Sao_Paulo}
+    volumes:
+      # Persist CSVs/databases on the host, outside the container lifecycle
+      - ./data:/app/data
+    restart: unless-stopped

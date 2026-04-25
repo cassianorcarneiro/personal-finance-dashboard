@@ -1,121 +1,225 @@
 # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-# AI POWERED FINANCIAL DASHBOARD
+# PERSONAL FINANCE DASHBOARD
 # CASSIANO RIBEIRO CARNEIRO
-# V1
+# V2
 # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+"""Personal finance dashboard built with Dash + Plotly.
+
+The app reads transactions from a CSV file, lets the user manage payment methods
+and add new (optionally installment-based) records, and renders aggregated
+charts grouped by category, payment method, time, and installment status.
+"""
 
 # Frameworks imports
 
-import pandas as pd
-from dash import Dash, html, dcc, Input, Output, State, callback_context
+import logging
+import os
+import threading
+import time
+import uuid
+import webbrowser
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
 import dash_auth
 import dash_bootstrap_components as dbc
-import plotly.express as px
-from datetime import datetime
-from dateutil.relativedelta import relativedelta
-import uuid
-import os
-from dash import dash_table
-import webbrowser, time, threading
 import matplotlib
 import matplotlib.colors as mcolors
+import pandas as pd
+import plotly.express as px
 import plotly.graph_objects as go
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from dash import Dash, Input, Output, State, callback_context, dash_table, dcc, html
+from dateutil.relativedelta import relativedelta
 
 # Custom modules import
 
 from config import Config as config
 
 # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+# Logging
+# ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%H:%M:%S",
+)
+logger = logging.getLogger("financial_dashboard")
+
+# ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 # Paths
 # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
-PAYMENT_METHODS_PATH = os.path.join(os.path.dirname(__file__), config.payment_methods_db)
-CSV_PATH = os.path.join(os.path.dirname(__file__), config.csv_db)
-CATEGORIES_PATH = os.path.join(os.path.dirname(__file__), config.categories_db)
+BASE_DIR = Path(__file__).resolve().parent
+PAYMENT_METHODS_PATH = BASE_DIR / config.payment_methods_db
+CSV_PATH = BASE_DIR / config.csv_db
+CATEGORIES_PATH = BASE_DIR / config.categories_db
+LOADING_PAGE_PATH = BASE_DIR / "loading.html"
 
 # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-# General custom functions
+# Reusable style dictionaries (extracted from layout to avoid duplication)
 # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
-def get_datetime(timezone_str):
+ICON_BUTTON_STYLE = {
+    "backgroundColor": config.blue_2,
+    "borderColor": config.blue_2,
+    "color": config.blue_1,
+    "fontSize": config.fontsize_1,
+}
+
+PRIMARY_BUTTON_STYLE = {
+    "backgroundColor": config.blue_4,
+    "borderColor": config.blue_4,
+    "color": "white",
+    "fontSize": config.fontsize_1,
+}
+
+SECONDARY_BUTTON_STYLE = {
+    "backgroundColor": config.gray_2,
+    "borderColor": config.gray_2,
+    "color": "white",
+    "fontSize": config.fontsize_1,
+}
+
+CARD_BODY_STYLE = {
+    "backgroundColor": config.blue_2,
+    "borderColor": config.blue_2,
+    "color": config.blue_1,
+    "fontSize": config.fontsize_1,
+}
+
+MODAL_HEADER_STYLE = {
+    "backgroundColor": config.gray_1,
+    "fontWeight": "bold",
+    "fontSize": config.fontsize_2,
+}
+
+MODAL_BODY_STYLE = {
+    "backgroundColor": config.gray_1,
+    "fontWeight": "bold",
+    "fontSize": config.fontsize_1,
+}
+
+CHART_AXIS_X = dict(
+    showgrid=False,
+    gridcolor=config.gray_1,
+    gridwidth=1.0,
+)
+
+CHART_AXIS_Y = dict(
+    gridcolor=config.gray_1,
+    gridwidth=1.0,
+    zerolinecolor=config.gray_3,
+    zerolinewidth=3.0,
+)
+
+# ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+# General helpers
+# ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+def get_datetime(timezone_str: str) -> datetime | str:
+    """Return a timezone-aware current datetime, or an error message if the zone is invalid."""
     try:
-        # Set the timezone based on the string
-        timezone = ZoneInfo(timezone_str)
-        
-        # Get the current timezone-aware datetime
-        current_datetime = datetime.now(timezone)
-        return current_datetime
-    
+        return datetime.now(ZoneInfo(timezone_str))
     except ZoneInfoNotFoundError:
         return f"Error: The timezone '{timezone_str}' does not exist."
 
-def load_categories():
+
+def load_categories() -> pd.DataFrame:
+    """Load and alphabetize the list of expense categories."""
     df_categories = pd.read_csv(CATEGORIES_PATH, sep=";", encoding="utf-8-sig")
-    df_categories = df_categories.sort_values(by=["Name"], ascending=[True])
-    return df_categories
+    return df_categories.sort_values(by=["Name"], ascending=[True])
 
-def get_categories():
-    df_categories = load_categories()
-    categories = []
-    for _, row in df_categories.iterrows():
-        categories.append(row["Name"])
-    categories = sorted(categories)
-    return categories
 
-def load_payment_methods():
-    df_payment_methods = pd.read_csv(PAYMENT_METHODS_PATH, sep=";", encoding="utf-8-sig")
-    df_payment_methods = df_payment_methods.sort_values(by=["Name", "Type"], ascending=[True, False])
-    return df_payment_methods
+def get_categories() -> list[str]:
+    """Return category names as a sorted list."""
+    return sorted(load_categories()["Name"].tolist())
 
-def save_payment_methods(df_payment_methods):
-    df_payment_methods.to_csv(PAYMENT_METHODS_PATH, sep=";", index=False, encoding="utf-8-sig")
 
-def get_payment_methods(name=''):
-    df_payment_methods = load_payment_methods()
-    payment_methods = {}
-    for _, row in df_payment_methods.iterrows():
+def load_payment_methods() -> pd.DataFrame:
+    """Load payment methods sorted by name (and Type descending)."""
+    df = pd.read_csv(PAYMENT_METHODS_PATH, sep=";", encoding="utf-8-sig")
+    return df.sort_values(by=["Name", "Type"], ascending=[True, False])
 
-        if pd.notna(row["Close Date"]) and pd.notna(row["Payment Date"]):
-            payment_methods[row["Name"]] = {
-                "statement_close_day": int(row["Close Date"]),
-                "payment_day": int(row["Payment Date"]),
-                "type": row["Type"]
-            }
-        else:
-            payment_methods[row["Name"]] = {
-                "statement_close_day": row["Close Date"],
-                "payment_day": row["Payment Date"],
-                "type": row["Type"]
-            }
 
-    if name == '':
+def save_payment_methods(df_payment_methods: pd.DataFrame) -> None:
+    """Persist payment methods, dropping rows with empty required fields."""
+    cleaned = df_payment_methods.copy()
+    # Drop rows with empty Name or Type — they would crash get_payment_methods later
+    cleaned = cleaned[cleaned["Name"].astype(str).str.strip().ne("")]
+    cleaned = cleaned[cleaned["Type"].astype(str).str.strip().ne("")]
+    cleaned.to_csv(PAYMENT_METHODS_PATH, sep=";", index=False, encoding="utf-8-sig")
+
+
+def get_payment_methods(name: str = "") -> dict[str, Any]:
+    """Return all payment methods as a dict, or a single one if `name` is given."""
+    df = load_payment_methods()
+    payment_methods: dict[str, Any] = {}
+    for _, row in df.iterrows():
+        # Coerce day fields safely; debit accounts may legitimately have NaN here
+        try:
+            close_day = int(row["Close Date"]) if pd.notna(row["Close Date"]) else None
+            pay_day = int(row["Payment Date"]) if pd.notna(row["Payment Date"]) else None
+        except (TypeError, ValueError):
+            close_day, pay_day = None, None
+        payment_methods[row["Name"]] = {
+            "statement_close_day": close_day,
+            "payment_day": pay_day,
+            "type": row["Type"],
+        }
+
+    if name == "":
         return payment_methods
     return payment_methods[name]
 
-def open_loading_page():
-    path = os.path.join(os.path.dirname(__file__), "loading.html")
-    local_url = f"file://{path}"
-    webbrowser.open(local_url)
 
-def load_data():
-    df_sheet = pd.read_csv(CSV_PATH, sep=";", encoding="utf-8-sig")
-    return df_sheet
+def open_loading_page() -> None:
+    """Open the local loading page in the default browser, if it exists."""
+    if not LOADING_PAGE_PATH.exists():
+        logger.info("Loading page not found at %s; skipping browser open.", LOADING_PAGE_PATH)
+        return
+    webbrowser.open(f"file://{LOADING_PAGE_PATH}")
 
-def generate_installments(label, category, date_str, total_amount, installments, payment_method_name, ignore):
-    
+
+def load_data() -> pd.DataFrame:
+    """Load the full transactions CSV."""
+    return pd.read_csv(CSV_PATH, sep=";", encoding="utf-8-sig")
+
+
+def generate_installments(
+    label: str,
+    category: str,
+    date_str: str,
+    total_amount: float,
+    installments: int,
+    payment_method_name: str,
+    ignore: int,
+) -> list[dict[str, Any]]:
+    """Generate one record per installment, with computed payment dates.
+
+    For credit cards, the first payment date depends on whether the transaction
+    happened before or after the statement close day. For debit, payment is
+    immediate.
+
+    Expenses must be passed as negative amounts; positive amounts are treated as
+    income. The sign is preserved across all installments.
+    """
     payment_method_info = get_payment_methods(payment_method_name)
-
     statement_close_day = payment_method_info["statement_close_day"]
     payment_day = payment_method_info["payment_day"]
     method_type = payment_method_info["type"]
 
     ignore = 1 if ignore == 1 else 0
-
     base_date = datetime.strptime(date_str, "%Y-%m-%d")
 
     if method_type == "Credit":
-
+        if statement_close_day is None or payment_day is None:
+            raise ValueError(
+                f"Credit method '{payment_method_name}' is missing close/payment days."
+            )
         transaction_day = base_date.day
 
         if payment_day > statement_close_day:
@@ -130,12 +234,15 @@ def generate_installments(label, category, date_str, total_amount, installments,
                 first_payment_date = (base_date + relativedelta(months=2)).replace(day=payment_day)
 
     elif method_type == "Debit":
-
         first_payment_date = base_date
+
+    else:
+        raise ValueError(f"Unknown payment method type: '{method_type}'")
 
     installment_amount = round(total_amount / installments, 2)
     transaction_hash = str(uuid.uuid4())
     record_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
     records = []
     for p in range(1, installments + 1):
         payment_date = first_payment_date + relativedelta(months=p - 1)
@@ -149,38 +256,159 @@ def generate_installments(label, category, date_str, total_amount, installments,
             "Payment Method": payment_method_name,
             "Hash": transaction_hash,
             "Record Timestamp": record_timestamp,
-            "Ignore Entry": ignore
+            "Ignore Entry": ignore,
         })
     return records
 
-def fill_months(df, date_column, value_column):
-    if not df.empty:
-        all_months = pd.date_range(df[date_column].min(), df[date_column].max(), freq='MS')
-        df = df.set_index(date_column).reindex(all_months, fill_value=0).rename_axis(date_column).reset_index()
-        df[date_column] = pd.to_datetime(df[date_column], dayfirst=False)
-        df.columns = [date_column, value_column]
+
+def fill_months(df: pd.DataFrame, date_column: str, value_column: str) -> pd.DataFrame:
+    """Reindex a monthly DataFrame to ensure every month in the range is present."""
+    if df.empty:
+        return df
+    all_months = pd.date_range(df[date_column].min(), df[date_column].max(), freq="MS")
+    df = (
+        df.set_index(date_column)
+        .reindex(all_months, fill_value=0)
+        .rename_axis(date_column)
+        .reset_index()
+    )
+    df[date_column] = pd.to_datetime(df[date_column], dayfirst=False)
+    df.columns = [date_column, value_column]
     return df
 
-def generate_pastel_colors_auto(df, column):
-    n = df[column].nunique()
+
+def generate_pastel_colors_auto(df: pd.DataFrame, column: str) -> list[str]:
+    """Generate a pastel color palette sized to the number of unique values in `column`."""
+    n = max(df[column].nunique(), 1)
     cmap = matplotlib.colormaps.get_cmap("Pastel1").resampled(n)
     return [mcolors.rgb2hex(cmap(i)) for i in range(n)]
 
-def empty_figure(message="No data available"):
+
+def empty_figure(message: str = "No data available") -> go.Figure:
+    """Return a placeholder figure used when a chart has no data."""
     fig = go.Figure()
     fig.add_annotation(
         text=message,
         xref="paper", yref="paper",
         x=0.5, y=0.5,
         showarrow=False,
-        font=dict(size=16, color=config.blue_1)
+        font=dict(size=16, color=config.blue_1),
     )
     fig.update_layout(
         xaxis=dict(visible=False),
         yaxis=dict(visible=False),
-        plot_bgcolor=config.blue_2
+        plot_bgcolor=config.blue_2,
     )
     return fig
+
+
+# ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+# Chart factory (deduplicates the original 7 nearly-identical bar chart blocks)
+# ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+def _apply_bar_layout(fig: go.Figure) -> go.Figure:
+    """Apply the dashboard's standard bar-chart layout."""
+    fig.update_layout(
+        plot_bgcolor=config.blue_2,
+        paper_bgcolor=config.blue_2,
+        title_font_color=config.blue_1,
+        font_color=config.blue_1,
+        font_size=config.chart_fontsize_1,
+        xaxis_title="Month/Year",
+        yaxis_title="Amount",
+        xaxis=CHART_AXIS_X,
+        yaxis=CHART_AXIS_Y,
+    )
+    return fig
+
+
+def _apply_pie_layout(fig: go.Figure) -> go.Figure:
+    """Apply the dashboard's standard pie-chart layout."""
+    fig.update_layout(
+        plot_bgcolor=config.blue_2,
+        paper_bgcolor=config.blue_2,
+        title_font_color=config.blue_1,
+        font_color=config.blue_1,
+        font_size=config.chart_fontsize_1,
+    )
+    return fig
+
+
+def make_monthly_bar(
+    df: pd.DataFrame,
+    date_column: str,
+    title: str,
+    color: str,
+    cumulative: bool = False,
+) -> go.Figure:
+    """Aggregate `df` by month on `date_column` and render a bar chart."""
+    if df.empty:
+        return empty_figure()
+
+    d = df.copy()
+    d[date_column] = pd.to_datetime(d[date_column], format="%Y-%m-%d")
+    d = d.groupby(d[date_column].dt.to_period("M"))["Amount"].sum().reset_index()
+    d[date_column] = d[date_column].dt.to_timestamp()
+    d = fill_months(d, date_column, "Amount")
+    d["MonthYear"] = d[date_column].dt.strftime("%b %Y")
+
+    if cumulative:
+        d["Cumulative_Amount"] = d["Amount"].cumsum()
+        y_col = "Cumulative_Amount"
+    else:
+        y_col = "Amount"
+
+    if d.empty:
+        return empty_figure()
+
+    fig = px.bar(d, x="MonthYear", y=y_col, title=title, color_discrete_sequence=[color])
+    return _apply_bar_layout(fig)
+
+
+def make_pie(df: pd.DataFrame, group_col: str, title: str) -> go.Figure:
+    """Aggregate `df` by `group_col` and render a pie chart of expense shares."""
+    if df.empty:
+        return empty_figure()
+
+    palette = generate_pastel_colors_auto(df, group_col)
+    fig = px.pie(
+        df.groupby(group_col)["Amount"].sum().reset_index(),
+        names=group_col,
+        values="Amount",
+        title=title,
+        color_discrete_sequence=palette,
+    )
+    return _apply_pie_layout(fig)
+
+
+def _filter_full_installments(df: pd.DataFrame, mode: str) -> pd.DataFrame:
+    """Filter to rows that are part of a multi-installment purchase.
+
+    Args:
+        df:    Source DataFrame containing an "Installment" column like "p/n".
+        mode:  Either "first" (rows where installment index == 1) or "last"
+               (rows where installment index == total).
+    """
+    d = df.copy()
+    d["Installment"] = d["Installment"].astype(str)
+    d = d[d["Installment"].str.contains("/")]
+    parts = d["Installment"].str.split("/")
+    d = d[parts.apply(lambda x: len(x) == 2 and x[1].isdigit() and int(x[1]) > 1)]
+
+    if d.empty:
+        return d
+
+    if mode == "first":
+        d = d[d["Installment"].str.startswith("1/")]
+    elif mode == "last":
+        d = d[d.apply(
+            lambda row: row["Installment"].split("/")[0] == row["Installment"].split("/")[1],
+            axis=1,
+        )]
+    else:
+        raise ValueError(f"Unknown installment filter mode: {mode}")
+    return d
+
 
 # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 # Dashboard app
@@ -193,11 +421,17 @@ default_end_date = f"{current_year}-12-31"
 app = Dash(
     __name__,
     external_stylesheets=[dbc.themes.BOOTSTRAP, dbc.icons.FONT_AWESOME],
-    title="Financial Control"
+    title="Financial Control",
 )
 
 if config.request_password:
     auth = dash_auth.BasicAuth(app, config.valid_users)
+
+
+def _icon_button(icon_class: str, button_id: str) -> dbc.Button:
+    """Helper to build an icon button with the standard style."""
+    return dbc.Button(html.I(className=icon_class), id=button_id, className="me-2", style=ICON_BUTTON_STYLE)
+
 
 app.layout = html.Div([
 
@@ -205,160 +439,130 @@ app.layout = html.Div([
     html.H1(
         "Financial Control",
         className="text-center my-4 py-2",
-        style={"backgroundColor": config.blue_3, "color": "white"}
+        style={"backgroundColor": config.blue_3, "color": "white"},
     ),
 
     html.P(dbc.Container([
 
         dcc.Store(id="update-trigger", data=0),
 
-        # html.Hr(style={"borderColor": "#35a79c", "borderWidth": "3px", "margin": "10px 0"}),
-
-        # Filters
+        # Filters (collapsible)
         dbc.Row([
             dbc.Col([
                 dbc.Collapse(
                     dbc.Card(
                         dbc.CardBody([
                             dbc.Row([
-                                
                                 dbc.Col([
                                     dbc.Label("Start Payment Date"),
                                     dbc.Input(
-                                        id="date-start",
-                                        type="date",
+                                        id="date-start", type="date",
                                         value=default_start_date,
-                                        style={"width": "100%"}
+                                        style={"width": "100%"},
                                     ),
                                 ], width=3, className="d-flex flex-column align-items-center justify-content-center"),
 
                                 dbc.Col([
                                     dbc.Label("End Payment Date"),
                                     dbc.Input(
-                                        id="date-end",
-                                        type="date",
+                                        id="date-end", type="date",
                                         value=default_end_date,
-                                        style={"width": "100%"}
+                                        style={"width": "100%"},
                                     ),
-                                ], width=3, className="d-flex flex-column align-items-center justify-content-center")
-
+                                ], width=3, className="d-flex flex-column align-items-center justify-content-center"),
                             ])
-                        ], style={
-                            "backgroundColor": config.blue_2,
-                            "borderColor": config.blue_2,
-                            "color": config.blue_1,
-                            "fontSize": config.fontsize_3
-                            }), style={
-                                "backgroundColor": config.blue_2,
-                                "borderColor": config.blue_2,
-                                "color": config.blue_1,
-                                "fontSize": config.fontsize_1
-                                }
+                        ], style={**CARD_BODY_STYLE, "fontSize": config.fontsize_3}),
+                        style=CARD_BODY_STYLE,
                     ),
                     id="filters-collapse",
                     is_open=False,
-                    style={"width": "100%"}
+                    style={"width": "100%"},
                 )
             ], width=24, className="ms-auto")
         ], className="my-4"),
 
         # Buttons
         dbc.Row([
-            dbc.Col(dbc.Button(html.I(className="fa-solid fa-filter"), id="toggle-filters",
-                               className="me-2", style={"backgroundColor": config.blue_2,
-                                                        "borderColor": config.blue_2,
-                                                        "color": config.blue_1,
-                                                        "fontSize": config.fontsize_1}), width="auto"),
-            dbc.Col(dbc.Button(html.I(className="fa-solid fa-arrow-rotate-left"), id="reset-btn",
-                               className="me-2", style={"backgroundColor": config.blue_2,
-                                                        "borderColor": config.blue_2,
-                                                        "color": config.blue_1,
-                                                        "fontSize": config.fontsize_1}), width="auto"),
-            dbc.Col(dbc.Button(html.I(className="fa fa-credit-card"), id="open-payment-methods-modal",
-                               className="me-2", style={"backgroundColor": config.blue_2,
-                                                        "borderColor": config.blue_2,
-                                                        "color": config.blue_1,
-                                                        "fontSize": config.fontsize_1}), width="auto"),
-            dbc.Col(dbc.Button(html.I(className="fa fa-plus"), id="open-modal",
-                               style={"backgroundColor": config.blue_2,
-                                      "borderColor": config.blue_2,
-                                      "color": config.blue_1,
-                                      "fontSize": config.fontsize_1}), width="auto")
+            dbc.Col(_icon_button("fa-solid fa-filter", "toggle-filters"), width="auto"),
+            dbc.Col(_icon_button("fa-solid fa-arrow-rotate-left", "reset-btn"), width="auto"),
+            dbc.Col(_icon_button("fa fa-credit-card", "open-payment-methods-modal"), width="auto"),
+            dbc.Col(_icon_button("fa fa-plus", "open-modal"), width="auto"),
         ], className="my-4"),
 
         # New Record Modal
         dbc.Modal([
-            dbc.ModalHeader("New Record",
-                            style={"backgroundColor": config.gray_1, "fontWeight": "bold", "fontSize": config.fontsize_2}),
+            dbc.ModalHeader("New Record", style=MODAL_HEADER_STYLE),
             dbc.ModalBody([
-
                 dbc.Row([
-                    
                     dbc.Col([
-                        dbc.Label("Transaction Date"), dbc.Input(id="input-date", type="date"),
-                    ], width=6, className="pe-2"),  # pe-2 = padding right
-
+                        dbc.Label("Transaction Date"),
+                        dbc.Input(id="input-date", type="date"),
+                    ], width=6, className="pe-2"),
                     dbc.Col([
-                        dbc.Label("Amount"), dbc.Input(id="input-amount", type="number", step="0.01"),
-                    ], width=6, className="ps-2"),  # ps-2 = padding left 
-
+                        dbc.Label("Amount"),
+                        dbc.Input(id="input-amount", type="number", step="0.01"),
+                    ], width=6, className="ps-2"),
                 ], className="mb-3"),
 
-                dbc.Label("Label"), dbc.Input(id="input-label", type="text", className="mb-3"),
-                dbc.Label("Category"), dbc.Select(id="input-category", options=[{"label": m} for m in get_categories()], className="mb-3"),
-                
+                dbc.Label("Label"),
+                dbc.Input(id="input-label", type="text", className="mb-3"),
+
+                dbc.Label("Category"),
+                dbc.Select(
+                    id="input-category",
+                    options=[{"label": m, "value": m} for m in get_categories()],
+                    className="mb-3",
+                ),
+
                 dbc.Row([
-                    
                     dbc.Col([
                         dbc.Label("Payment Method"),
                         dbc.Select(
                             id="input-payment-method",
                             options=[{"label": m, "value": m} for m in get_payment_methods().keys()],
-                            value=list(get_payment_methods().keys())[0] if get_payment_methods() else None
-                        )
-                    ], width=6, className="pe-2"),  # ps-2 = padding left
-
+                            value=next(iter(get_payment_methods().keys()), None),
+                        ),
+                    ], width=6, className="pe-2"),
                     dbc.Col([
                         dbc.Label("Installments"),
-                        dbc.Input(id="input-installments", type="number", min=1, value=1)
-                    ], width=6, className="ps-2"),  # pe-2 = padding right
-
+                        dbc.Input(id="input-installments", type="number", min=1, value=1),
+                    ], width=6, className="ps-2"),
                 ], className="mb-4"),
 
                 dbc.Checkbox(id="input-ignore", label="Ignore entry?", value=False, className="mb-3"),
-            ], style={"backgroundColor": config.gray_1, "fontWeight": "bold", "fontSize": config.fontsize_1}),
+            ], style=MODAL_BODY_STYLE),
             dbc.ModalFooter([
-                dbc.Button("Insert", id="btn-save",
-                           style={"backgroundColor": config.blue_4, "borderColor": config.blue_4, "color": "white", "fontSize": config.fontsize_1}),
-                dbc.Button("Cancel", id="btn-close",
-                           style={"backgroundColor": config.gray_2, "borderColor": config.gray_2, "color": "white", "fontSize": config.fontsize_1}),
+                dbc.Button("Insert", id="btn-save", style=PRIMARY_BUTTON_STYLE),
+                dbc.Button("Cancel", id="btn-close", style=SECONDARY_BUTTON_STYLE),
             ], style={"backgroundColor": config.gray_1}),
         ], id="modal", is_open=False),
 
         # Payment Methods Modal
         dbc.Modal([
-            dbc.ModalHeader("Manage Payment Methods",
-                            style={"backgroundColor": config.gray_1, "fontWeight": "bold", "fontSize": config.fontsize_2}),
+            dbc.ModalHeader("Manage Payment Methods", style=MODAL_HEADER_STYLE),
             dbc.ModalBody([
                 dash_table.DataTable(
                     id="table-payment-methods",
-                    columns=[{"name": c, "id": c, "editable": True} for c in ["Name", "Close Date", "Payment Date", "Type"]],
+                    columns=[
+                        {"name": c, "id": c, "editable": True}
+                        for c in ["Name", "Close Date", "Payment Date", "Type"]
+                    ],
                     data=load_payment_methods().to_dict("records"),
                     editable=True, row_deletable=True,
                     style_table={"overflowX": "auto"},
                     style_header={"backgroundColor": config.blue_2, "color": "white", "fontWeight": "bold"},
-                    style_cell={"backgroundColor": "white", "color": "black", "textAlign": "center"}
+                    style_cell={"backgroundColor": "white", "color": "black", "textAlign": "center"},
                 ),
-                dbc.Button("Add", id="btn-add-payment-method",
-                           className="mt-2 float-end",
-                           style={"backgroundColor": config.blue_2, "borderColor": config.blue_2, "color": "white", "fontSize": config.fontsize_1})
+                dbc.Button(
+                    "Add", id="btn-add-payment-method",
+                    className="mt-2 float-end",
+                    style={**ICON_BUTTON_STYLE, "color": "white"},
+                ),
             ], style={"backgroundColor": config.gray_1, "padding": "30px"}),
             dbc.ModalFooter([
-                dbc.Button("Save", id="btn-save-payment-methods",
-                           style={"backgroundColor": config.blue_4, "borderColor": config.blue_4, "color": "white", "fontSize": config.fontsize_1}),
-                dbc.Button("Close", id="btn-close-payment-methods",
-                           style={"backgroundColor": config.gray_2, "borderColor": config.gray_2, "color": "white", "fontSize": config.fontsize_1}),
-            ], style={"backgroundColor": config.gray_1})
+                dbc.Button("Save", id="btn-save-payment-methods", style=PRIMARY_BUTTON_STYLE),
+                dbc.Button("Close", id="btn-close-payment-methods", style=SECONDARY_BUTTON_STYLE),
+            ], style={"backgroundColor": config.gray_1}),
         ], id="modal-payment-methods", is_open=False, size="xl"),
 
         # Charts
@@ -372,16 +576,14 @@ app.layout = html.Div([
 
         # Delete buttons
         dbc.Row([
-            dbc.Col(dbc.Button('Delete entry', id="btn-delete-hash-selected",
-                               style={"backgroundColor": config.blue_2,
-                                      "borderColor": config.blue_2,
-                                      "color": config.blue_1,
-                                      "fontSize": config.fontsize_1}), width="auto"),
-            dbc.Col(dbc.Button('Delete selected installments', id="btn-delete-selected",
-                               style={"backgroundColor": config.blue_2,
-                                      "borderColor": config.blue_2,
-                                      "color": config.blue_1,
-                                      "fontSize": config.fontsize_1}), width="auto")
+            dbc.Col(
+                dbc.Button("Delete entry", id="btn-delete-hash-selected", style=ICON_BUTTON_STYLE),
+                width="auto",
+            ),
+            dbc.Col(
+                dbc.Button("Delete selected installments", id="btn-delete-selected", style=ICON_BUTTON_STYLE),
+                width="auto",
+            ),
         ], className="my-4"),
 
         # Main table
@@ -393,18 +595,27 @@ app.layout = html.Div([
                     data=[],
                     page_size=20,
                     style_table={"overflowX": "auto"},
-                    style_header={"backgroundColor": config.blue_2, "color": config.blue_1, "fontSize": config.fontsize_1},
-                    style_cell={"backgroundColor": config.blue_3, "color": config.blue_1,
-                                "textAlign": "center", "minWidth": "100px", "whiteSpace": "normal",
-                                "fontSize": config.fontsize_1},
+                    style_header={
+                        "backgroundColor": config.blue_2,
+                        "color": config.blue_1,
+                        "fontSize": config.fontsize_1,
+                    },
+                    style_cell={
+                        "backgroundColor": config.blue_3,
+                        "color": config.blue_1,
+                        "textAlign": "center",
+                        "minWidth": "100px",
+                        "whiteSpace": "normal",
+                        "fontSize": config.fontsize_1,
+                    },
                     row_selectable="multi",
                     selected_rows=[],
                     filter_action="none",
                     sort_action="none",
                     page_action="none",
-                    editable=False
+                    editable=False,
                 ),
-                width=12
+                width=12,
             )
         ], className="mb-4"),
 
@@ -416,28 +627,30 @@ app.layout = html.Div([
 # Callbacks
 # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
-# Callback to show/hide filters
+# ----- Show/hide filters -----
 
 @app.callback(
     Output("filters-collapse", "is_open"),
     Input("toggle-filters", "n_clicks"),
-    prevent_initial_call=True
+    prevent_initial_call=True,
 )
 def toggle_filters(n_clicks):
     return n_clicks % 2 == 1
 
-# Callback to reset filters
+
+# ----- Reset filters -----
 
 @app.callback(
     Output("date-start", "value"),
     Output("date-end", "value"),
     Input("reset-btn", "n_clicks"),
-    prevent_initial_call=True
+    prevent_initial_call=True,
 )
 def reset_filters(n_clicks):
     return default_start_date, default_end_date
 
-# Toggle Payment Methods modal
+
+# ----- Toggle Payment Methods modal and refresh dropdown -----
 
 @app.callback(
     [Output("modal-payment-methods", "is_open"),
@@ -445,33 +658,38 @@ def reset_filters(n_clicks):
     [Input("open-payment-methods-modal", "n_clicks"),
      Input("btn-close-payment-methods", "n_clicks"),
      Input("btn-save-payment-methods", "n_clicks")],
-    [State("modal-payment-methods", "is_open"), State("table-payment-methods", "data")]
+    [State("modal-payment-methods", "is_open"),
+     State("table-payment-methods", "data")],
 )
 def toggle_payment_methods_modal(open_click, close_click, save_click, is_open, table_data):
     trigger = callback_context.triggered_id
     if trigger == "btn-save-payment-methods" and table_data:
-        df_payment_methods = pd.DataFrame(table_data)
-        save_payment_methods(df_payment_methods)
+        save_payment_methods(pd.DataFrame(table_data))
 
+    options = [{"label": m, "value": m} for m in get_payment_methods().keys()]
     if open_click or close_click or save_click:
-        return not is_open, [{"label": m, "value": m} for m in get_payment_methods().keys()]
-    return is_open, [{"label": m, "value": m} for m in get_payment_methods().keys()]
+        return not is_open, options
+    return is_open, options
+
 
 @app.callback(
     Output("table-payment-methods", "data"),
     [Input("btn-add-payment-method", "n_clicks")],
-    [State("table-payment-methods", "data"), State("table-payment-methods", "columns")],
-    prevent_initial_call=True
+    [State("table-payment-methods", "data"),
+     State("table-payment-methods", "columns")],
+    prevent_initial_call=True,
 )
 def add_payment_method(n_clicks, rows, columns):
     rows.append({c["id"]: "" for c in columns})
     return rows
 
-# Toggle modal
+
+# ----- Toggle New Record modal -----
 
 @app.callback(
     Output("modal", "is_open"),
-    [Input("open-modal", "n_clicks"), Input("btn-close", "n_clicks")],
+    [Input("open-modal", "n_clicks"),
+     Input("btn-close", "n_clicks")],
     [State("modal", "is_open")],
 )
 def toggle_modal(open_click, close_click, is_open):
@@ -479,13 +697,17 @@ def toggle_modal(open_click, close_click, is_open):
         return not is_open
     return is_open
 
-# Single callback to save, delete selected rows, and update charts/table
+
+# ----- Save / delete / refresh charts and table -----
 
 @app.callback(
-    [Output("fig1", "figure"), Output("fig2", "figure"), Output("fig3", "figure"), Output("fig4", "figure"), Output("fig5", "figure"), Output("fig6", "figure"), Output("fig7", "figure"),
+    [Output("fig1", "figure"), Output("fig2", "figure"), Output("fig3", "figure"),
+     Output("fig4", "figure"), Output("fig5", "figure"), Output("fig6", "figure"),
+     Output("fig7", "figure"),
      Output("table-data", "data"), Output("table-data", "columns"),
      Output("input-label", "value"), Output("input-category", "value"),
-     Output("input-date", "value"), Output("input-amount", "value"), Output("input-installments", "value"), Output("input-ignore", "value"),
+     Output("input-date", "value"), Output("input-amount", "value"),
+     Output("input-installments", "value"), Output("input-ignore", "value"),
      Output("table-data", "selected_rows")],
     [Input("btn-save", "n_clicks"),
      Input("btn-delete-hash-selected", "n_clicks"),
@@ -497,316 +719,161 @@ def toggle_modal(open_click, close_click, is_open):
      State("input-installments", "value"), State("input-payment-method", "value"),
      State("input-ignore", "value"),
      State("table-data", "selected_rows"), State("table-data", "data")],
-    prevent_initial_call=False
+    prevent_initial_call=False,
 )
-
-# ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-# Update function
-# ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
-def update_all(save_click, delete_click_hash, delete_click, update_trigger, start_date, end_date, label,
-               category, date, amount, installments, payment_method, ignore, selected_rows, table_data):
-    
+def update_all(
+    save_click, delete_click_hash, delete_click, update_trigger, start_date, end_date,
+    label, category, date, amount, installments, payment_method, ignore,
+    selected_rows, table_data,
+):
     trigger = callback_context.triggered_id
-    
     df = load_data()
 
-    # Save new record
-
+    # ----- Save new record -----
     if trigger == "btn-save" and all([label, category, date, amount, installments, payment_method]):
-
         try:
-            records = generate_installments(label, category, date, float(amount), int(installments), payment_method, ignore)
-            
+            records = generate_installments(
+                label, category, date, float(amount), int(installments), payment_method, ignore,
+            )
             df = pd.concat([df, pd.DataFrame(records)], ignore_index=True)
             df.to_csv(CSV_PATH, sep=";", index=False, encoding="utf-8-sig")
             df = load_data()
-        
-        except ValueError:
-            pass
-        clear_label, clear_category, clear_date, clear_amount, clear_ignore, clear_installments = "", None, None, None, None, False
+            logger.info("Inserted %d installment records for '%s'.", len(records), label)
+        except (ValueError, KeyError) as e:
+            logger.error("Failed to insert record: %s", e)
+        clear_label, clear_category, clear_date, clear_amount, clear_ignore, clear_installments = (
+            "", None, None, None, None, False
+        )
     else:
-        clear_label, clear_category, clear_date, clear_amount, clear_ignore, clear_installments = None, None, None, None, None, False
+        clear_label, clear_category, clear_date, clear_amount, clear_ignore, clear_installments = (
+            None, None, None, None, None, False
+        )
 
-    # Delete selected rows
-
+    # ----- Delete by hash (whole purchase, all installments) -----
     if trigger == "btn-delete-hash-selected" and selected_rows:
-        
         df_table = pd.DataFrame(table_data)
         hashes_to_delete = df_table.iloc[selected_rows]["Hash"].tolist()
         df = df[~df["Hash"].isin(hashes_to_delete)]
         df.to_csv(CSV_PATH, sep=";", index=False, encoding="utf-8-sig")
+        logger.info("Deleted purchases with hashes: %s", hashes_to_delete)
 
+    # ----- Delete only selected installments -----
     if trigger == "btn-delete-selected" and selected_rows:
-
         df_table = pd.DataFrame(table_data)
         rows_to_delete = df_table.iloc[selected_rows][["Hash", "Payment Date"]]
         rows_to_delete["Payment Date"] = pd.to_datetime(rows_to_delete["Payment Date"], format="%d/%m/%Y")
-        df = df[~df.set_index(["Hash", "Payment Date"]).index.isin(rows_to_delete.set_index(["Hash", "Payment Date"]).index)]
+        df = df[
+            ~df.set_index(["Hash", "Payment Date"]).index.isin(
+                rows_to_delete.set_index(["Hash", "Payment Date"]).index
+            )
+        ]
         df.to_csv(CSV_PATH, sep=";", index=False, encoding="utf-8-sig")
+        logger.info("Deleted %d individual installments.", len(rows_to_delete))
 
-    # Update table
-    
-    columns_to_show = ["Record Timestamp", "Transaction Date", "Payment Date", "Label", "Category", "Amount", "Payment Method", "Hash"]
-    
+    # ----- Build the table view -----
+    columns_to_show = [
+        "Record Timestamp", "Transaction Date", "Payment Date", "Label",
+        "Category", "Amount", "Payment Method", "Hash",
+    ]
     df_table = df.copy()
 
-    # Convert to datetime
-    df_table["Record Timestamp"] = pd.to_datetime(df_table["Record Timestamp"], errors="coerce", format="%Y-%m-%d %H:%M:%S")
-    df_table["Transaction Date"] = pd.to_datetime(df_table["Transaction Date"], errors="coerce", format="%Y-%m-%d")
-    df_table["Payment Date"] = pd.to_datetime(df_table["Payment Date"], errors="coerce", format="%Y-%m-%d")
+    df_table["Record Timestamp"] = pd.to_datetime(
+        df_table["Record Timestamp"], errors="coerce", format="%Y-%m-%d %H:%M:%S"
+    )
+    df_table["Transaction Date"] = pd.to_datetime(
+        df_table["Transaction Date"], errors="coerce", format="%Y-%m-%d"
+    )
+    df_table["Payment Date"] = pd.to_datetime(
+        df_table["Payment Date"], errors="coerce", format="%Y-%m-%d"
+    )
 
-    # Format dates as strings in DD/MM/YYYY format
     df_table["Record Timestamp"] = df_table["Record Timestamp"].dt.strftime("%d/%m/%Y %H:%M:%S")
     df_table["Transaction Date"] = df_table["Transaction Date"].dt.strftime("%d/%m/%Y")
     df_table["Payment Date"] = df_table["Payment Date"].dt.strftime("%d/%m/%Y")
 
-    # Sort and select columns
     df_table = df_table.sort_values("Record Timestamp", ascending=False).head(40)
     df_table = df_table[columns_to_show]
-
-    # Prepare DataTable data
     columns = [{"name": col, "id": col} for col in df_table.columns]
     data = df_table.to_dict("records")
 
-    # Filter by selected date range
-
-    df_filtered_global = df.copy()
-
-    df_filtered_global["Payment Date"] = pd.to_datetime(df_filtered_global["Payment Date"], errors="coerce", format="%Y-%m-%d")
-
+    # ----- Filter by selected date range for charts -----
+    df_filt = df.copy()
+    df_filt["Payment Date"] = pd.to_datetime(df_filt["Payment Date"], errors="coerce", format="%Y-%m-%d")
     if start_date:
-        df_filtered_global = df_filtered_global[df_filtered_global["Payment Date"] >= pd.to_datetime(start_date)]
+        df_filt = df_filt[df_filt["Payment Date"] >= pd.to_datetime(start_date)]
     if end_date:
-        df_filtered_global = df_filtered_global[df_filtered_global["Payment Date"] <= pd.to_datetime(end_date)]
-    
-    if not df_filtered_global.empty:
-        
-        # Chart 1
+        df_filt = df_filt[df_filt["Payment Date"] <= pd.to_datetime(end_date)]
 
-        df_g1 = df_filtered_global.copy()
+    if df_filt.empty:
+        empty = empty_figure()
+        return (empty, empty, empty, empty, empty, empty, empty,
+                data, columns, clear_label, clear_category, clear_date, clear_amount,
+                clear_installments, clear_ignore, [])
 
-        df_g1 = df_g1[df_g1["Ignore Entry"] == 0]
-        df_g1["Payment Date"] = pd.to_datetime(df_g1["Payment Date"], format="%Y-%m-%d")
-        df_g1 = df_g1.groupby(df_g1["Payment Date"].dt.to_period("M"))["Amount"].sum().reset_index()
-        df_g1["Payment Date"] = df_g1["Payment Date"].dt.to_timestamp()
-        df_g1 = fill_months(df_g1, "Payment Date", "Amount")
-        df_g1["MonthYear"] = df_g1["Payment Date"].dt.strftime("%b %Y")
-        df_g1["Cumulative_Amount"] = df_g1["Amount"].cumsum()
+    # Common preprocessing for expense-only views
+    not_ignored = df_filt[df_filt["Ignore Entry"] == 0].copy()
+    expenses = not_ignored[not_ignored["Amount"] < 0].copy()
+    expenses["Amount"] = expenses["Amount"].abs()
 
-        if not df_g1.empty:
-            
-            fig1 = px.bar(df_g1, x="MonthYear", y="Cumulative_Amount", title="Cumulative amount",
-                        color_discrete_sequence=[config.blue_1])
-            fig1.update_layout(plot_bgcolor=config.blue_2, paper_bgcolor=config.blue_2,
-                            title_font_color=config.blue_1, font_color=config.blue_1, font_size=config.chart_fontsize_1,
-                            xaxis_title="Month/Year", yaxis_title="Amount",
-                            xaxis=dict(
-                                showgrid=False,
-                                gridcolor=config.gray_1,
-                                gridwidth=1.0
-                            ),
-                            yaxis=dict(
-                                gridcolor=config.gray_1,
-                                gridwidth=1.0,
-                                zerolinecolor=config.gray_3,
-                                zerolinewidth=3.0
-                            ))
-        else:
-            fig1 = empty_figure()
+    # Chart 1 — cumulative balance over time (income + expenses)
+    fig1 = make_monthly_bar(
+        not_ignored, "Payment Date",
+        title="Cumulative amount",
+        color=config.blue_1,
+        cumulative=True,
+    )
 
-        # Chart 2
+    # Chart 2 — spending by payment method
+    fig2 = make_pie(expenses, "Payment Method", title="Spending by Payment Method")
 
-        df_g2 = df_filtered_global.copy()
+    # Chart 3 — spending by category
+    fig3 = make_pie(expenses, "Category", title="Spending by Category")
 
-        df_g2 = df_g2[df_g2["Ignore Entry"] == 0]
-        df_g2 = df_g2[df_g2["Amount"] < 0]
-        df_g2["Amount"] = df_g2["Amount"].abs()
+    # Chart 4 — amount paid per month (BUG FIX: now respects Ignore Entry)
+    fig4 = make_monthly_bar(
+        expenses, "Payment Date",
+        title="Amount paid per month",
+        color=config.red_1,
+    )
 
-        predefined_color_palette = generate_pastel_colors_auto(df_g2, "Payment Method")
+    # Chart 5 — amount spent per month (by Transaction Date)
+    fig5 = make_monthly_bar(
+        expenses, "Transaction Date",
+        title="Amount spent per month",
+        color=config.red_1,
+    )
 
-        if not df_g2.empty:
+    # Chart 6 — last installments (purchases finishing payment this month)
+    last_installments = _filter_full_installments(expenses, mode="last")
+    fig6 = make_monthly_bar(
+        last_installments, "Payment Date",
+        title="Finishing payments",
+        color=config.green_1,
+    )
 
-            fig2 = px.pie(df_g2.groupby("Payment Method")["Amount"].sum().reset_index(), names="Payment Method", values="Amount",
-                        title="Spending by Payment Method", color_discrete_sequence=predefined_color_palette)
-            fig2.update_layout(plot_bgcolor=config.blue_2, paper_bgcolor=config.blue_2,
-                            title_font_color=config.blue_1, font_color=config.blue_1, font_size=config.chart_fontsize_1)
-        else:
-            fig2 = empty_figure()
+    # Chart 7 — first installments (purchases starting payment this month)
+    first_installments = _filter_full_installments(expenses, mode="first")
+    fig7 = make_monthly_bar(
+        first_installments, "Payment Date",
+        title="Starting payments",
+        color=config.yellow_1,
+    )
 
-        # Chart 3
+    return (
+        fig1, fig2, fig3, fig4, fig5, fig6, fig7,
+        data, columns,
+        clear_label, clear_category, clear_date, clear_amount, clear_installments, clear_ignore,
+        [],
+    )
 
-        df_g3 = df_filtered_global.copy()
 
-        df_g3 = df_g3[df_g3["Ignore Entry"] == 0]
-        df_g3 = df_g3[df_g3["Amount"] < 0]
-        df_g3["Amount"] = df_g3["Amount"].abs()
+# ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+# Entry point
+# ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
-        predefined_color_palette = generate_pastel_colors_auto(df_g3, "Category")
-
-        if not df_g3.empty:
-
-            fig3 = px.pie(df_g3.groupby("Category")["Amount"].sum().reset_index(), names="Category", values="Amount",
-                        title="Spending by Category", color_discrete_sequence=predefined_color_palette)
-            fig3.update_layout(plot_bgcolor=config.blue_2, paper_bgcolor=config.blue_2,
-                            title_font_color=config.blue_1, font_color=config.blue_1, font_size=config.chart_fontsize_1)
-        else:
-            fig3 = empty_figure()
-
-        # Chart 4
-
-        df_g4 = df_filtered_global.copy()
-        
-        df_g4 = df_g4[df_g4["Amount"] < 0]
-        df_g4["Amount"] = df_g4["Amount"].abs()
-        df_g4["Payment Date"] = pd.to_datetime(df_g4["Payment Date"], format="%Y-%m-%d")
-        df_g4 = df_g4.groupby(df_g4["Payment Date"].dt.to_period("M"))["Amount"].sum().reset_index()
-        df_g4["Payment Date"] = df_g4["Payment Date"].dt.to_timestamp()
-        df_g4 = fill_months(df_g4, "Payment Date", "Amount")
-        df_g4["MonthYear"] = df_g4["Payment Date"].dt.strftime("%b %Y")
-        
-        if not df_g4.empty:
-
-            fig4 = px.bar(df_g4, x="MonthYear", y="Amount", title="Amount paid per month",
-                        color_discrete_sequence=[config.red_1])
-            fig4.update_layout(plot_bgcolor=config.blue_2, paper_bgcolor=config.blue_2,
-                            title_font_color=config.blue_1, font_color=config.blue_1, font_size=config.chart_fontsize_1,
-                            xaxis_title="Month/Year", yaxis_title="Amount",
-                            xaxis=dict(
-                                showgrid=False,
-                                gridcolor=config.gray_1,
-                                gridwidth=1.0
-                            ),
-                            yaxis=dict(
-                                gridcolor=config.gray_1,
-                                gridwidth=1.0,
-                                zerolinecolor=config.gray_3,
-                                zerolinewidth=3.0
-                            ))
-        else:
-            fig4 = empty_figure()
-
-        # Chart 5
-
-        df_g5 = df_filtered_global.copy()
-
-        df_g5 = df_g5[df_g5["Ignore Entry"] == 0]
-        df_g5 = df_g5[df_g5["Amount"] < 0]
-        df_g5["Amount"] = df_g5["Amount"].abs()
-        df_g5["Transaction Date"] = pd.to_datetime(df_g5["Transaction Date"], format="%Y-%m-%d")
-        df_g5 = df_g5.groupby(df_g5["Transaction Date"].dt.to_period("M"))["Amount"].sum().reset_index()
-        df_g5["Transaction Date"] = df_g5["Transaction Date"].dt.to_timestamp()
-        df_g5 = fill_months(df_g5, "Transaction Date", "Amount")
-        df_g5["MonthYear"] = df_g5["Transaction Date"].dt.strftime("%b %Y")
-        
-        if not df_g5.empty:
-
-            fig5 = px.bar(df_g5, x="MonthYear", y="Amount", title="Amount spent per month",
-                        color_discrete_sequence=[config.red_1])
-            fig5.update_layout(plot_bgcolor=config.blue_2, paper_bgcolor=config.blue_2,
-                            title_font_color=config.blue_1, font_color=config.blue_1, font_size=config.chart_fontsize_1,
-                            xaxis_title="Month/Year", yaxis_title="Amount",
-                            xaxis=dict(
-                                showgrid=False,
-                                gridcolor=config.gray_1,
-                                gridwidth=1.0
-                            ),
-                            yaxis=dict(
-                                gridcolor=config.gray_1,
-                                gridwidth=1.0,
-                                zerolinecolor=config.gray_3,
-                                zerolinewidth=3.0
-                            ))
-        else:
-            fig5 = empty_figure()
-
-        # Chart 6
-        
-        df_g6 = df_filtered_global.copy()
-
-        df_g6 = df_g6[df_g6["Ignore Entry"] != 1.0]
-        df_g6 = df_g6[df_g6["Amount"] < 0]
-        df_g6["Amount"] = df_g6["Amount"].abs()
-        df_g6["Payment Date"] = pd.to_datetime(df_g6["Payment Date"], format="%Y-%m-%d")
-        df_g6["Installment"] = df_g6["Installment"].astype(str)
-        df_g6 = df_g6[df_g6["Installment"].str.contains("/")]
-        df_g6 = df_g6[df_g6["Installment"].str.split("/").apply(lambda x: int(x[1]) > 1)]
-        df_g6 = df_g6[df_g6.apply(lambda row: row["Installment"].endswith(f"{int(row['Installment'].split('/')[1])}/{int(row['Installment'].split('/')[1])}"), axis=1)]
-        df_g6 = df_g6.groupby(df_g6["Payment Date"].dt.to_period("M"))["Amount"].sum().reset_index()
-        df_g6["Payment Date"] = df_g6["Payment Date"].dt.to_timestamp()
-        df_g6 = fill_months(df_g6, "Payment Date", "Amount")
-        df_g6["MonthYear"] = df_g6["Payment Date"].dt.strftime("%b %Y")
-        
-        if not df_g6.empty:
-
-            fig6 = px.bar(df_g6, x="MonthYear", y="Amount", title="Finishing payments", color_discrete_sequence=[config.green_1])
-            fig6.update_layout(plot_bgcolor=config.blue_2, paper_bgcolor=config.blue_2,
-                            title_font_color=config.blue_1, font_color=config.blue_1, font_size=config.chart_fontsize_1,
-                            xaxis_title="Month/Year", yaxis_title="Amount",
-                            xaxis=dict(
-                                showgrid=False,
-                                gridcolor=config.gray_1,
-                                gridwidth=1.0
-                            ),
-                            yaxis=dict(
-                                gridcolor=config.gray_1,
-                                gridwidth=1.0,
-                                zerolinecolor=config.gray_3,
-                                zerolinewidth=3.0
-                            ))
-        else:
-            fig6 = empty_figure()
-
-        # Chart 7
-        
-        df_g7 = df_filtered_global.copy()
-
-        df_g7 = df_g7[df_g7["Ignore Entry"] == 0]
-        df_g7 = df_g7[df_g7["Amount"] < 0]
-        df_g7["Amount"] = df_g7["Amount"].abs()
-        df_g7["Payment Date"] = pd.to_datetime(df_g7["Payment Date"], format="%Y-%m-%d")
-        df_g7["Installment"] = df_g7["Installment"].astype(str)
-        df_g7 = df_g7[df_g7["Installment"].str.contains("/")]
-        df_g7 = df_g7[df_g7["Installment"].str.split("/").apply(lambda x: int(x[1]) > 1)]
-        df_g7 = df_g7[df_g7.apply(lambda row: row["Installment"] == f"1/{int(row['Installment'].split('/')[1])}", axis=1)]
-        df_g7 = df_g7.groupby(df_g7["Payment Date"].dt.to_period("M"))["Amount"].sum().reset_index()
-        df_g7["Payment Date"] = df_g7["Payment Date"].dt.to_timestamp()
-        df_g7 = fill_months(df_g7, "Payment Date", "Amount")
-        df_g7["MonthYear"] = df_g7["Payment Date"].dt.strftime("%b %Y")
-        
-        if not df_g7.empty:
-
-            fig7 = px.bar(df_g7, x="MonthYear", y="Amount", title="Starting payments", color_discrete_sequence=[config.yellow_1])
-            fig7.update_layout(plot_bgcolor=config.blue_2, paper_bgcolor=config.blue_2,
-                            title_font_color=config.blue_1, font_color=config.blue_1, font_size=config.chart_fontsize_1,
-                            xaxis_title="Month/Year", yaxis_title="Amount",
-                            xaxis=dict(
-                                showgrid=False,
-                                gridcolor=config.gray_1,
-                                gridwidth=1.0
-                            ),
-                            yaxis=dict(
-                                showgrid=True,
-                                gridcolor=config.gray_1,
-                                gridwidth=1.0,
-                                zerolinecolor=config.gray_3,
-                                zerolinewidth=3.0
-                            ))
-        else:
-            fig7 = empty_figure()
-    else:
-
-        fig1 = empty_figure()
-        fig2 = empty_figure()
-        fig3 = empty_figure()
-        fig4 = empty_figure()
-        fig5 = empty_figure()
-        fig6 = empty_figure()
-        fig7 = empty_figure()
-        
-    return fig1, fig2, fig3, fig4, fig5, fig6, fig7, data, columns, clear_label, clear_category, clear_date, clear_amount, clear_installments, clear_ignore, []
-    
 if __name__ == "__main__":
-    threading.Thread(target=open_loading_page, daemon=True).start()          # Open loading page in a thread so it doesn't block the server
-    time.sleep(1)                                                          # Wait 1 or 2 seconds to ensure the loading tab opened
-    app.run(debug=True, host="0.0.0.0", port=8050, use_reloader=False)     # Start Dash normally
+    # Open the loading splash in a background thread; the main thread starts the server
+    threading.Thread(target=open_loading_page, daemon=True).start()
+    time.sleep(1)
+    logger.info("Starting Dash server on http://0.0.0.0:8050")
+    app.run(debug=True, host="0.0.0.0", port=8050, use_reloader=False)
