@@ -1,7 +1,7 @@
 # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 # PERSONAL FINANCE DASHBOARD
+# REPOSITORY: https://github.com/cassianorcarneiro/personal-finance-dashboard
 # CASSIANO RIBEIRO CARNEIRO
-# V2
 # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 """Personal finance dashboard built with Dash + Plotly.
